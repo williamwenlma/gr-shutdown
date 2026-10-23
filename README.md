@@ -96,3 +96,8 @@ Apart from the demo GIF, no images are included: bring a photo you have the righ
 to use. This is an
 independent fan project, not affiliated with or endorsed by Ricoh; "RICOH" and "GR" are
 Ricoh's trademarks.
+
+## License
+
+The code is released under the [MIT License](LICENSE). It covers the code only: the fonts
+keep their own licenses and are not included, and the demo photo is public domain (CC0).
