@@ -84,9 +84,21 @@ def _instance(weight):
     return instancer.instantiateVariableFont(f, {"wght": weight, "wdth": 100})
 
 
+def _cap_units(font):
+    """Cap height in font units; older static fonts lack OS/2 sCapHeight."""
+    cap = getattr(font["OS/2"], "sCapHeight", 0)
+    if cap:
+        return cap
+    from fontTools.pens.boundsPen import BoundsPen
+    gs = font.getGlyphSet()
+    pen = BoundsPen(gs)
+    gs[font.getBestCmap()[ord("H")]].draw(pen)
+    return pen.bounds[3]
+
+
 def _glyph_paths(font, text, cap_h, x0, baseline, tracking):
     upm = font["head"].unitsPerEm
-    cap_units = font["OS/2"].sCapHeight
+    cap_units = _cap_units(font)
     s = cap_h / cap_units
     gs = font.getGlyphSet()
     cmap = font.getBestCmap()
@@ -107,7 +119,39 @@ def _advance_width(font, text, s):
     return sum(hmtx[cmap[ord(c)]][0] for c in text) * s
 
 
+def _hex(rgb):
+    return "#%02x%02x%02x" % tuple(int(v) for v in rgb)
+
+
+def make_svg_serif(lay, out_paths):
+    font = TTFont(lay.serif_font)
+    cap, rc = lay.cap, lay.ricoh_cap
+    gr, _, _ = _glyph_paths(font, "GR", cap, lay.gr_x, lay.baseline, 0)
+    ii, _, _ = _glyph_paths(font, "II", cap, lay.ii_x, lay.baseline, cap * lay.ii_track)
+    x0, tracking = ty.ricoh_placement(lay)
+    ricoh, _, _ = _glyph_paths(font, "RICOH", rc, x0, lay.top + rc, tracking)
+    rule = ""
+    if lay.rule:
+        y = lay.baseline + cap * 0.30
+        rule = (f'\n  <line id="rule" x1="{lay.left:.2f}" y1="{y:.2f}" x2="{lay.left + lay.width:.2f}" '
+                f'y2="{y:.2f}" stroke="{_hex(lay.ink)}" stroke-opacity="{190 / 255:.2f}" '
+                f'stroke-width="{lay.thread_w}"/>')
+    vx, vw = lay.left - 12, lay.width + 24
+    vy, vh = lay.top - 12, lay.baseline + cap * 0.30 + 12 - (lay.top - 12)
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vx:.1f} {vy:.1f} {vw:.1f} {vh:.1f}" width="{vw * 4:.0f}" height="{vh * 4:.0f}">
+  <title>RICOH GR II - serif wordmark with rubricated II</title>
+  <g id="ricoh" fill="{_hex(lay.ink)}">{"".join(f'<path d="{p}"/>' for p in ricoh)}</g>
+  <g id="gr" fill="{_hex(lay.ink)}">{"".join(f'<path d="{p}"/>' for p in gr)}</g>
+  <g id="ii" fill="{_hex(lay.red)}">{"".join(f'<path d="{p}"/>' for p in ii)}</g>{rule}
+</svg>
+'''
+    for p in out_paths:
+        p.write_text(svg, encoding="utf-8")
+
+
 def make_svg(lay, out_paths):
+    if lay.serif_font:
+        return make_svg_serif(lay, out_paths)
     cap = lay.cap
     bold, semi = _instance(700), _instance(600)
     gr, _, _ = _glyph_paths(bold, "GR", cap, lay.gr_x, lay.baseline, 0)

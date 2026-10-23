@@ -14,6 +14,7 @@ WordmarkState so animate.py can keyframe it.
 """
 import os
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -60,6 +61,16 @@ class Layout:
     glow_radius: float = 4.0        # II halation blur, 1x px
     ii_web: bool = False            # suit-style webbing inside the II strands
     strand_dome: bool = False       # domed strand tops (reads better when large)
+    # Serif lockup (v3). With serif_font set, GR, RICOH and the II are all set
+    # in that static font and the II is a pair of glyphs instead of strands.
+    serif_font: str = ""
+    ii_track: float = 0.04          # tracking between the two I's, in caps
+    ricoh_track: float = -1.0       # RICOH tracking in caps; < 0 spreads it to GR's width
+    rule: bool = False              # hairline rule under the lockup, like a plate caption
+    ink: tuple = tuple(INK.tolist())
+    red: tuple = tuple(RED.tolist())
+    halation: bool = True           # warm glow under the II
+    misregister: bool = True        # colour plates nudged apart
     # derived (filled by solve())
     gr_x: float = 0.0
     gr_w: float = 0.0
@@ -94,14 +105,49 @@ def _text_width(font, size, text, tracking=0.0):
     return sum(f.getlength(ch) for ch in text) + tracking * (len(text) - 1)
 
 
+@lru_cache(maxsize=None)
+def _static_font(path):
+    if not Path(path).exists():
+        raise SystemExit(f"serif font not found: {path}\n"
+                         "set GR2_SERIF_FONT to Centaur or another static serif .ttf")
+    return ImageFont.truetype(path, 100)
+
+
+def fonts(lay):
+    """(GR font, RICOH font) for a layout, both at size 100."""
+    if lay.serif_font:
+        f = _static_font(lay.serif_font)
+        return f, f
+    return GR_FONT, RICOH_FONT
+
+
+def ricoh_placement(lay):
+    """(x of the first RICOH cap, tracking), both in 1x units."""
+    if lay.ricoh_track < 0:
+        _, rf = fonts(lay)
+        base_w = _text_width(rf, lay.ricoh_cap / _cap_ratio(rf), "RICOH")
+        return lay.gr_x, (lay.gr_w - base_w) / 4
+    _, rf = fonts(lay)
+    tracking = lay.ricoh_track * lay.cap
+    w = _text_width(rf, lay.ricoh_cap / _cap_ratio(rf), "RICOH", tracking)
+    return lay.gr_x + (lay.width - w) / 2, tracking
+
+
 def solve(lay=None):
     lay = lay or Layout()
     cap = lay.cap
-    gr_size = cap / GR_CAP
-    f = GR_FONT.font_variant(size=gr_size)
+    gf, _ = fonts(lay)
+    gr_size = cap / _cap_ratio(gf)
+    f = gf.font_variant(size=gr_size)
     l, t, r, b = f.getbbox("GR")
     lay.gr_w = r - l
-    lay.ii_w = cap * lay.ii_width_ratio
+    if lay.serif_font:
+        # matches _draw_text: the first I's ink starts at ii_x, the second
+        # follows one advance plus tracking later
+        _, _, ir, _ = f.getbbox("I")
+        lay.ii_w = f.getlength("I") + cap * lay.ii_track + ir
+    else:
+        lay.ii_w = cap * lay.ii_width_ratio
     lay.width = lay.gr_w + cap * lay.ii_gap_ratio + lay.ii_w
     lay.left = lay.right - lay.width
     lay.gr_x = lay.left
@@ -117,6 +163,13 @@ def centered(lay, cx=320.0):
     """Solve `lay`, then shift it so the lockup is centred on x = cx."""
     solve(lay)
     lay.right = cx + lay.width / 2
+    return solve(lay)
+
+
+def left_aligned(lay, x=26.0):
+    """Solve `lay`, then shift it so the lockup starts at x."""
+    solve(lay)
+    lay.right = x + lay.width
     return solve(lay)
 
 
@@ -183,23 +236,32 @@ def draw_masks(state, lay=LAYOUT, D=4):
     thread = Image.new("L", (W, H), 0)
     cap = lay.cap
 
-    # RICOH, tracked so it spans the lockup width
+    gr_font, ricoh_font = fonts(lay)
+
+    # RICOH, tracked so it spans the lockup width (or centred over it)
     if state.ricoh_alpha > 0:
         rc = lay.ricoh_cap
-        size = rc / RICOH_CAP
-        base_w = _text_width(RICOH_FONT, size, "RICOH")
-        tracking = (lay.gr_w - base_w) / 4 + state.ricoh_spread * cap
-        x0 = lay.gr_x
+        x0, tracking = ricoh_placement(lay)
+        tracking += state.ricoh_spread * cap
         m = Image.new("L", (W, H), 0)
-        _draw_text(m, RICOH_FONT, rc, x0, lay.top + rc, "RICOH", tracking, D)
+        _draw_text(m, ricoh_font, rc, x0, lay.top + rc, "RICOH", tracking, D)
         ink.paste(Image.eval(m, lambda v: int(v * state.ricoh_alpha)), (0, 0), m)
 
     # GR
     if state.gr_alpha > 0:
         m = Image.new("L", (W, H), 0)
-        _draw_text(m, GR_FONT, cap, lay.gr_x, lay.baseline + state.gr_dy, "GR", 0, D)
+        _draw_text(m, gr_font, cap, lay.gr_x, lay.baseline + state.gr_dy, "GR", 0, D)
         a = state.gr_alpha
         ink = Image.fromarray(np.maximum(np.asarray(ink), (np.asarray(m) * a).astype(np.uint8)))
+
+    if lay.serif_font:
+        # II as two roman capitals, and a hairline rule under the lockup
+        _draw_text(red, gr_font, cap, lay.ii_x, lay.baseline, "II", cap * lay.ii_track, D)
+        if lay.rule:
+            y = (lay.baseline + cap * 0.30) * D
+            ImageDraw.Draw(ink).line([(lay.left * D, y), ((lay.left + lay.width) * D, y)],
+                                     fill=190, width=max(1, int(round(lay.thread_w * D))))
+        return ink, red, thread
 
     # II: strands, threads, cross strand, drops
     top_y = lay.baseline - cap
@@ -313,7 +375,8 @@ def composite(base, state, scale=1, lay=LAYOUT):
     big = (W * SS, H * SS)  # draw space is already at D = SS*scale per unit
     assert ink_m.size == big
     # Downsample with misregistration: red plate nudged right, blue plate left.
-    off = SS // 2 + 1 if scale == 1 else SS
+    off = (SS // 2 + 1 if scale == 1 else SS) if lay.misregister else 0
+    ink_c, red_c = np.array(lay.ink, dtype=np.float32), np.array(lay.red, dtype=np.float32)
     out = base.copy()
 
     def lay_plate(mask_img, color, alpha):
@@ -327,17 +390,17 @@ def composite(base, state, scale=1, lay=LAYOUT):
             out[..., c] = out[..., c] * (1 - m) + color[c] * m
 
     # Hairline threads: semi-transparent ink
-    lay_plate(thr_m, INK, 0.55 * state.red_alpha)
-    lay_plate(ink_m, INK, state.ink_alpha)
+    lay_plate(thr_m, ink_c, 0.55 * state.red_alpha)
+    lay_plate(ink_m, ink_c, state.ink_alpha)
 
     # Halation under the II (always a little, more during the pulse)
     g_amt = (0.22 + 0.45 * state.glow) * state.red_alpha
-    if g_amt > 0:
+    if g_amt > 0 and lay.halation:
         g = red_m.resize((W, H), Image.BOX).filter(ImageFilter.GaussianBlur(lay.glow_radius * scale))
         g = np.asarray(g, dtype=np.float32)[..., None] / 255.0 * g_amt
         out = out * (1 - g) + GLOW * g
 
-    lay_plate(red_m, RED, state.red_alpha)
+    lay_plate(red_m, red_c, state.red_alpha)
     if lay.ii_web:
         web = np.asarray(draw_ii_web(lay, D).filter(soft), dtype=np.float32)
         web = web * (np.asarray(red_m, dtype=np.float32) / 255.0)  # clip to the strands
