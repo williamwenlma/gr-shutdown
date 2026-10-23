@@ -4,7 +4,13 @@ Turns a portrait photo into a 1.2-second power-off animation styled after the Ri
 4:3 screen: the photo holds with a "RICOH GR II" lockup in the sky, then fades to black.
 Everything, including the wordmark, is drawn in code; no image editor is involved.
 
-<!-- Add a demo GIF here, rendered from a photo you own. -->
+| v1, photo-led | v2, type-led |
+|---|---|
+| ![v1 demo](docs/demo_v1.gif) | ![v2 demo](docs/demo_v2.gif) |
+
+<sub>Demo photo: Alfred Stieglitz, *The Flatiron*, 1903, The Metropolitan Museum of Art,
+Alfred Stieglitz Collection, 1949 (49.55.16). Public domain, released by the Met under
+[CC0](https://commons.wikimedia.org/wiki/File:The_Flatiron_MET_DP233039.jpg).</sub>
 
 ## Pipeline
 
@@ -58,10 +64,23 @@ render a few candidates and compare:
 
 ```bash
 python src/prepare.py 400 520 640   # writes assets/prepared/base_640x480_y<N>.png
+python src/export.py --crop-y 520   # then render with the one you like
+```
+
+### Reproduce the demo
+
+Download [`The_Flatiron_MET_DP233039.jpg`](https://commons.wikimedia.org/wiki/File:The_Flatiron_MET_DP233039.jpg)
+from Wikimedia Commons, trim the paper margin around the printed plate, and render with the
+crop at the top so the building's tip stays in frame:
+
+```bash
+python -c "from PIL import Image; Image.open('The_Flatiron_MET_DP233039.jpg').convert('RGB').crop((28, 28, 1598, 3150)).save('assets/raw/source.png')"
+python src/export.py --crop-y 0     # docs/ uses out/*_640x480_loop.gif
 ```
 
 ## Notes
 
-No images are included: bring a photo you have the rights to use. This is an
+Apart from the two demo GIFs, no images are included: bring a photo you have the rights
+to use. This is an
 independent fan project, not affiliated with or endorsed by Ricoh; "RICOH" and "GR" are
 Ricoh's trademarks.

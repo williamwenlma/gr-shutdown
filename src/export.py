@@ -2,6 +2,7 @@
 
     python src/export.py            # all versions
     python src/export.py v2         # one version
+    python src/export.py --crop-y 0 # override the crop for a new photo
 
 Outputs (out/ for v1, out/v2/ with a gr2_v2_ prefix for v2):
   gr2_shutdown_640x480.gif         camera master: 6 frames x 200 ms, plays once,
@@ -12,6 +13,8 @@ Outputs (out/ for v1, out/v2/ with a gr2_v2_ prefix for v2):
   gr2_still_*.png/.jpg             key frame with the full lockup
   ricoh_gr2_wordmark.svg           editable vector lockup (also in type/)
 """
+import argparse
+import dataclasses
 import shutil
 import subprocess
 import sys
@@ -177,9 +180,20 @@ def build(v):
 
 
 def main():
-    names = sys.argv[1:] or list(VERSIONS)
-    for n in names:
-        build(VERSIONS[n])
+    ap = argparse.ArgumentParser()
+    ap.add_argument("versions", nargs="*", metavar="version",
+                    help=f"one or more of {', '.join(sorted(VERSIONS))} (default: all)")
+    ap.add_argument("--crop-y", type=int, help="top of the 4:3 window in source pixels "
+                    "(overrides the version's crop_y0, which is tuned per photo)")
+    args = ap.parse_args()
+    unknown = [n for n in args.versions if n not in VERSIONS]
+    if unknown:
+        ap.error(f"unknown version: {', '.join(unknown)}")
+    for n in args.versions or sorted(VERSIONS):
+        v = VERSIONS[n]
+        if args.crop_y is not None:
+            v = dataclasses.replace(v, crop_y0=args.crop_y)
+        build(v)
 
 
 if __name__ == "__main__":

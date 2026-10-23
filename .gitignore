@@ -8,6 +8,8 @@ type/
 *.jpeg
 *.gif
 *.mp4
+# ...except the README demo, rendered from a CC0 photo
+!docs/*.gif
 
 # Secrets
 .env
