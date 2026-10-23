@@ -1,0 +1,27 @@
+# Images: source photos and everything rendered from them stay local
+assets/
+build/
+out/
+type/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
