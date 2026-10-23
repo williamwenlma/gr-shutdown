@@ -1,4 +1,4 @@
-# gr2anime
+# gr-shutdown
 
 Turns a portrait photo into a 1.2-second power-off animation styled after the Ricoh GR II's
 4:3 screen: the photo holds with a "RICOH GR II" lockup in the sky, then fades to black.
